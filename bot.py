@@ -9,17 +9,15 @@ from aiogram.filters import Command
 from aiogram.types import FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-# Токен (ОБЯЗАТЕЛЬНО СГЕНЕРИРУЙТЕ НОВЫЙ В @BotFather и вставьте сюда)
+# Токен (ОБЯЗАТЕЛЬНО СГЕНЕРИРУЙТЕ НОВЫЙ В @BotFather)
 bot = Bot(token="8914648437:AAE7qfTXQY1VF_wUx-X-sRvqnzGYk3PtwmY")
 dp = Dispatcher()
 
-BEAR_GIFT_ID = "5170233102089322756"
 COUNTER_FILE = "msg_counter.txt"
 WINNERS_FILE = "winners.json"
 BACKUP_FILE = "winners_backup.json"
-TARGET_FILE = "target_pos.txt"  # Файл для хранения выигрышной позиции
+TARGET_FILE = "target_pos.txt"
 
-# Ваш ID для доступа к админке
 ADMIN_ID = 6305430094 
 
 # ---------- Счётчик ----------
@@ -59,7 +57,11 @@ def load_winners():
                 continue
     return []
 
-def save_winner(user_id, username, full_name, message_count, chat_id, chat_title):
+def save_winners(winners):
+    with open(WINNERS_FILE, "w", encoding="utf-8") as f:
+        json.dump(winners, f, ensure_ascii=False, indent=2)
+
+def save_new_winner(user_id, username, full_name, message_count, chat_id, chat_title):
     winners = load_winners()
     if os.path.exists(WINNERS_FILE):
         try:
@@ -74,14 +76,12 @@ def save_winner(user_id, username, full_name, message_count, chat_id, chat_title
         "message_number": message_count,
         "chat_id": chat_id,
         "chat_title": chat_title or "",
-        "gift": "Мишка",
+        "status": "Ожидает выдачи",
         "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     })
+    save_winners(winners)
 
-    with open(WINNERS_FILE, "w", encoding="utf-8") as f:
-        json.dump(winners, f, ensure_ascii=False, indent=2)
-
-# ---------- Команда /start в личке ----------
+# ---------- Команда /start ----------
 @dp.message(Command("start"), F.chat.type == "private")
 async def cmd_start(message: types.Message):
     if message.from_user.id == ADMIN_ID:
@@ -90,7 +90,7 @@ async def cmd_start(message: types.Message):
         ])
         await message.answer(
             "👋 Привет, Админ!\n\n"
-            "Я бот для выдачи мишек в чатах.\n"
+            "Я бот для выдачи подарков в чатах.\n"
             "Нажми на кнопку ниже, чтобы открыть панель управления.",
             reply_markup=kb
         )
@@ -106,49 +106,38 @@ async def handle_group_message(message: types.Message):
     count = get_count() + 1
     save_count(count)
 
-    # Определяем позицию в цикле (от 1 до 20)
     pos = ((count - 1) % 20) + 1
 
-    # Если начинается новый цикл (позиция 1), генерируем новую выигрышную позицию
+    # Начинается новый цикл - генерируем позицию
     if pos == 1:
         new_target = random.randint(15, 20)
         save_target_pos(new_target)
 
     target_pos = get_target_pos()
 
-    # Проверяем, совпала ли текущая позиция с выигрышной
+    # Если текущее сообщение попало на выигрышную позицию
     if pos == target_pos:
         user = message.from_user
         user_id = user.id
 
-        try:
-            await bot.send_gift(
-                user_id=user_id,
-                gift_id=BEAR_GIFT_ID,
-                text=f"🎁 Поздравляем! Вы выиграли мишку (сообщение #{count})"
-            )
+        save_new_winner(
+            user_id=user_id,
+            username=user.username,
+            full_name=user.full_name,
+            message_count=count,
+            chat_id=message.chat.id,
+            chat_title=message.chat.title,
+        )
 
-            save_winner(
-                user_id=user_id,
-                username=user.username,
-                full_name=user.full_name,
-                message_count=count,
-                chat_id=message.chat.id,
-                chat_title=message.chat.title,
-            )
-
-            mention = f"@{user.username}" if user.username else user.full_name
-            await message.reply(
-                f"🎉 <b>Поздравляем!</b>\n"
-                f"🎁 <b>{mention}</b> выиграл <b>мишку</b> от @gavendlu\n"
-                f"✅ Подарок отправлен.\n\n"
-                f"🚨 Пишите сообщения в чате и получайте возможность так же залутать подарки!",
-                parse_mode="HTML",
-            )
-
-        except Exception as e:
-            print(f"Ошибка отправки подарка: {e}")
-            await message.reply("😢 Не удалось отправить подарок, обратитесь к администратору.")
+        # Публикуем сообщение в чат (БЕЗ отправки звезд, чтобы вы выдали вручную)
+        mention = f"@{user.username}" if user.username else user.full_name
+        await message.reply(
+            f"🎉 <b>Поздравляем!</b>\n"
+            f"🎁 <b>{mention}</b> выиграл <b>мишку</b> от @gavendlu\n"
+            f"⏳ <i>Подарок будет выдан администратором.</i>\n\n"
+            f"🚨 Пишите сообщения в чате и получайте возможность так же залутать подарки!",
+            parse_mode="HTML",
+        )
 
 # ---------- Админ-панель ----------
 def admin_kb():
@@ -162,11 +151,15 @@ def winners_text():
     if not winners:
         return "Пока никто не выигрывал."
     lines = [f"<b>Всего победителей:</b> {len(winners)}\n"]
+    
+    # Показываем последние 30
     for i, w in enumerate(winners[-30:], 1):
         mention = f"@{w['username']}" if w.get("username") else w.get("full_name", "—")
+        status = w.get("status", "Ожидает выдачи")
+        status_emoji = "⏳" if status == "Ожидает выдачи" else "✅"
         lines.append(
             f"{i}. {mention} (ID: <code>{w['user_id']}</code>) — "
-            f"{w.get('gift', 'Мишка')}, сообщение #{w.get('message_number', '?')}, {w.get('date', '?')}"
+            f"сообщение #{w.get('message_number', '?')}, {status_emoji} {status}"
         )
     if len(winners) > 30:
         lines.append(f"\n… и ещё {len(winners) - 30}. Полный список — в экспорте.")
@@ -177,15 +170,50 @@ async def cb_admin_panel(call: types.CallbackQuery):
     if call.from_user.id != ADMIN_ID:
         await call.answer("У вас нет доступа.", show_alert=True)
         return
-    await call.message.edit_text(winners_text(), parse_mode="HTML", reply_markup=admin_kb())
+    
+    # Добавляем кнопку "Выдать всем"
+    kb = InlineKeyboardBuilder()
+    kb.button(text="📤 Экспорт в CSV", callback_data="export_csv")
+    kb.button(text="🔄 Обновить список", callback_data="refresh")
+    kb.button(text="✅ Выдать всем (ожидает)", callback_data="give_all")
+    
+    await call.message.edit_text(winners_text(), parse_mode="HTML", reply_markup=kb.as_markup())
     await call.answer()
 
 @dp.callback_query(F.data == "refresh")
 async def cb_refresh(call: types.CallbackQuery):
     if call.from_user.id != ADMIN_ID:
         return
-    await call.message.edit_text(winners_text(), parse_mode="HTML", reply_markup=admin_kb())
+    
+    kb = InlineKeyboardBuilder()
+    kb.button(text="📤 Экспорт в CSV", callback_data="export_csv")
+    kb.button(text="🔄 Обновить список", callback_data="refresh")
+    kb.button(text="✅ Выдать всем (ожидает)", callback_data="give_all")
+    
+    await call.message.edit_text(winners_text(), parse_mode="HTML", reply_markup=kb.as_markup())
     await call.answer("Обновлено")
+
+@dp.callback_query(F.data == "give_all")
+async def cb_give_all(call: types.CallbackQuery):
+    if call.from_user.id != ADMIN_ID:
+        return
+    
+    winners = load_winners()
+    count = 0
+    for w in winners:
+        if w.get("status") == "Ожидает выдачи":
+            w["status"] = "Выдан вручную"
+            count += 1
+            
+    save_winners(winners)
+    await call.answer(f"Отмечено как выданные: {count} чел.", show_alert=True)
+    
+    # Обновляем текст
+    kb = InlineKeyboardBuilder()
+    kb.button(text="📤 Экспорт в CSV", callback_data="export_csv")
+    kb.button(text="🔄 Обновить список", callback_data="refresh")
+    kb.button(text="✅ Выдать всем (ожидает)", callback_data="give_all")
+    await call.message.edit_text(winners_text(), parse_mode="HTML", reply_markup=kb.as_markup())
 
 @dp.callback_query(F.data == "export_csv")
 async def cb_export(call: types.CallbackQuery):
@@ -198,12 +226,12 @@ async def cb_export(call: types.CallbackQuery):
 
     csv_path = "winners_export.csv"
     with open(csv_path, "w", encoding="utf-8-sig") as f:
-        f.write("№;user_id;username;full_name;gift;message_number;chat_title;date\n")
+        f.write("№;user_id;username;full_name;gift;message_number;chat_title;status;date\n")
         for i, w in enumerate(winners, 1):
             f.write(
                 f"{i};{w['user_id']};{w.get('username', '')};{w.get('full_name', '')};"
-                f"{w.get('gift', 'Мишка')};{w.get('message_number', '')};"
-                f"{w.get('chat_title', '')};{w.get('date', '')}\n"
+                f"Мишка;{w.get('message_number', '')};"
+                f"{w.get('chat_title', '')};{w.get('status', 'Ожидает выдачи')};{w.get('date', '')}\n"
             )
 
     await call.message.answer_document(
