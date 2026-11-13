@@ -5,10 +5,11 @@ import shutil
 from datetime import datetime
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
-from aiogram.types import FSInputFile
+from aiogram.types import FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-bot = Bot(token="YOUR_BOT_TOKEN")
+# Токен (ОБЯЗАТЕЛЬНО СГЕНЕРИРУЙТЕ НОВЫЙ В @BotFather и вставьте сюда)
+bot = Bot(token="8914648437:AAE7qfTXQY1VF_wUx-X-sRvqnzGYk3PtwmY")
 dp = Dispatcher()
 
 BEAR_GIFT_ID = "5170233102089322756"
@@ -16,8 +17,8 @@ COUNTER_FILE = "msg_counter.txt"
 WINNERS_FILE = "winners.json"
 BACKUP_FILE = "winners_backup.json"
 
-ADMIN_ID = 123456789  # замените на ваш user_id
-
+# Ваш ID для доступа к админке
+ADMIN_ID = 6305430094 
 
 # ---------- Счётчик (не сбрасывается) ----------
 def get_count():
@@ -27,11 +28,9 @@ def get_count():
     except (FileNotFoundError, ValueError):
         return 0
 
-
 def save_count(c):
     with open(COUNTER_FILE, "w") as f:
         f.write(str(c))
-
 
 # ---------- Победители (только добавление, с бэкапом) ----------
 def load_winners():
@@ -46,11 +45,8 @@ def load_winners():
                 continue
     return []
 
-
 def save_winner(user_id, username, full_name, message_count, chat_id, chat_title):
     winners = load_winners()
-
-    # Резервная копия перед записью
     if os.path.exists(WINNERS_FILE):
         try:
             shutil.copy(WINNERS_FILE, BACKUP_FILE)
@@ -71,6 +67,22 @@ def save_winner(user_id, username, full_name, message_count, chat_id, chat_title
     with open(WINNERS_FILE, "w", encoding="utf-8") as f:
         json.dump(winners, f, ensure_ascii=False, indent=2)
 
+# ---------- Команда /start в личке ----------
+@dp.message(Command("start"), F.chat.type == "private")
+async def cmd_start(message: types.Message):
+    if message.from_user.id == ADMIN_ID:
+        # Админка для вас
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📊 Админ-панель", callback_data="admin_panel")]
+        ])
+        await message.answer(
+            "👋 Привет, Админ!\n\n"
+            "Я бот для выдачи мишек в чатах.\n"
+            "Нажми на кнопку ниже, чтобы открыть панель управления.",
+            reply_markup=kb
+        )
+    else:
+        await message.answer("👋 Привет! Я бот для выдачи подарков в чатах. Добавь меня в свой чат!")
 
 # ---------- Сообщения в чате ----------
 @dp.message(F.chat.type.in_({"group", "supergroup"}))
@@ -116,14 +128,12 @@ async def handle_group_message(message: types.Message):
             print(f"Ошибка отправки подарка: {e}")
             await message.reply("😢 Не удалось отправить подарок, обратитесь к администратору.")
 
-
 # ---------- Админ-панель ----------
 def admin_kb():
     kb = InlineKeyboardBuilder()
     kb.button(text="📤 Экспорт в CSV", callback_data="export_csv")
     kb.button(text="🔄 Обновить список", callback_data="refresh")
     return kb.as_markup()
-
 
 def winners_text():
     winners = load_winners()
@@ -140,13 +150,13 @@ def winners_text():
         lines.append(f"\n… и ещё {len(winners) - 30}. Полный список — в экспорте.")
     return "\n".join(lines)
 
-
-@dp.message(Command("admin"))
-async def cmd_admin(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
+@dp.callback_query(F.data == "admin_panel")
+async def cb_admin_panel(call: types.CallbackQuery):
+    if call.from_user.id != ADMIN_ID:
+        await call.answer("У вас нет доступа.", show_alert=True)
         return
-    await message.answer(winners_text(), parse_mode="HTML", reply_markup=admin_kb())
-
+    await call.message.edit_text(winners_text(), parse_mode="HTML", reply_markup=admin_kb())
+    await call.answer()
 
 @dp.callback_query(F.data == "refresh")
 async def cb_refresh(call: types.CallbackQuery):
@@ -154,7 +164,6 @@ async def cb_refresh(call: types.CallbackQuery):
         return
     await call.message.edit_text(winners_text(), parse_mode="HTML", reply_markup=admin_kb())
     await call.answer("Обновлено")
-
 
 @dp.callback_query(F.data == "export_csv")
 async def cb_export(call: types.CallbackQuery):
@@ -181,12 +190,10 @@ async def cb_export(call: types.CallbackQuery):
     )
     await call.answer("Готово")
 
-
 # ---------- Запуск ----------
 async def main():
     print("Бот запущен... Данные не сбрасываются.")
     await dp.start_polling(bot)
-
 
 if __name__ == "__main__":
     asyncio.run(main())
