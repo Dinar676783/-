@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import shutil
+import random
 from datetime import datetime
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
@@ -16,11 +17,12 @@ BEAR_GIFT_ID = "5170233102089322756"
 COUNTER_FILE = "msg_counter.txt"
 WINNERS_FILE = "winners.json"
 BACKUP_FILE = "winners_backup.json"
+TARGET_FILE = "target_pos.txt"  # Файл для хранения выигрышной позиции
 
 # Ваш ID для доступа к админке
 ADMIN_ID = 6305430094 
 
-# ---------- Счётчик (не сбрасывается) ----------
+# ---------- Счётчик ----------
 def get_count():
     try:
         with open(COUNTER_FILE, "r") as f:
@@ -32,7 +34,19 @@ def save_count(c):
     with open(COUNTER_FILE, "w") as f:
         f.write(str(c))
 
-# ---------- Победители (только добавление, с бэкапом) ----------
+# ---------- Выигрышная позиция ----------
+def get_target_pos():
+    try:
+        with open(TARGET_FILE, "r") as f:
+            return int(f.read().strip())
+    except (FileNotFoundError, ValueError):
+        return None
+
+def save_target_pos(pos):
+    with open(TARGET_FILE, "w") as f:
+        f.write(str(pos))
+
+# ---------- Победители ----------
 def load_winners():
     for path in (WINNERS_FILE, BACKUP_FILE):
         if os.path.exists(path):
@@ -71,7 +85,6 @@ def save_winner(user_id, username, full_name, message_count, chat_id, chat_title
 @dp.message(Command("start"), F.chat.type == "private")
 async def cmd_start(message: types.Message):
     if message.from_user.id == ADMIN_ID:
-        # Админка для вас
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📊 Админ-панель", callback_data="admin_panel")]
         ])
@@ -93,9 +106,18 @@ async def handle_group_message(message: types.Message):
     count = get_count() + 1
     save_count(count)
 
+    # Определяем позицию в цикле (от 1 до 20)
     pos = ((count - 1) % 20) + 1
 
-    if 15 <= pos <= 20:
+    # Если начинается новый цикл (позиция 1), генерируем новую выигрышную позицию
+    if pos == 1:
+        new_target = random.randint(15, 20)
+        save_target_pos(new_target)
+
+    target_pos = get_target_pos()
+
+    # Проверяем, совпала ли текущая позиция с выигрышной
+    if pos == target_pos:
         user = message.from_user
         user_id = user.id
 
