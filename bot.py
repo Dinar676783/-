@@ -577,6 +577,8 @@ async def cb_back_to_menu(call: types.CallbackQuery):
 
 async def main():
     print("Бот запущен...")
+    # Эта строка убивает старые сессии и конфликты!
+    await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
