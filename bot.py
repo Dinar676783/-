@@ -17,8 +17,10 @@ COUNTER_FILE = "msg_counter.txt"
 WINNERS_FILE = "winners.json"
 BACKUP_FILE = "winners_backup.json"
 TARGET_FILE = "target_pos.txt"
+BEAR_IMAGE = "bear.png"  # положи картинку мишки рядом со скриптом
 
-ADMIN_ID = 6305430094 
+# ---------- Админы ----------
+ADMIN_IDS = {6305430094, 6699838073}
 
 # ---------- Счётчик ----------
 def get_count():
@@ -84,7 +86,7 @@ def save_new_winner(user_id, username, full_name, message_count, chat_id, chat_t
 # ---------- Команда /start ----------
 @dp.message(Command("start"), F.chat.type == "private")
 async def cmd_start(message: types.Message):
-    if message.from_user.id == ADMIN_ID:
+    if message.from_user.id in ADMIN_IDS:
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📊 Админ-панель", callback_data="admin_panel")]
         ])
@@ -106,11 +108,12 @@ async def handle_group_message(message: types.Message):
     count = get_count() + 1
     save_count(count)
 
-    pos = ((count - 1) % 20) + 1
+    # Цикл из 60 сообщений, выигрышная позиция 50–60
+    pos = ((count - 1) % 60) + 1
 
     # Начинается новый цикл - генерируем позицию
     if pos == 1:
-        new_target = random.randint(15, 20)
+        new_target = random.randint(50, 60)
         save_target_pos(new_target)
 
     target_pos = get_target_pos()
@@ -129,21 +132,30 @@ async def handle_group_message(message: types.Message):
             chat_title=message.chat.title,
         )
 
-        # Публикуем сообщение в чат (БЕЗ отправки звезд, чтобы вы выдали вручную)
         mention = f"@{user.username}" if user.username else user.full_name
-        await message.reply(
-            f"🎉 <b>Поздравляем!</b>\n"
-            f"🎁 <b>{mention}</b> выиграл <b>мишку</b> от @gavendlu\n"
-            f"⏳ <i>Подарок будет выдан администратором.</i>\n\n"
-            f"🚨 Пишите сообщения в чате и получайте возможность так же залутать подарки!",
-            parse_mode="HTML",
+        caption = (
+            f"🥳 <b>Поздравляю!</b>\n"
+            f"🎁 <b>{mention}</b> ты выиграл <b>мишку</b> 🧸 от @gavendlu\n"
+            f"✅ Подарок отправлен.\n\n"
+            f"‼️ Пишите сообщения в чате и получайте возможность так же залутать мишку!"
         )
+
+        # Отправляем с картинкой, если файл есть, иначе просто текст
+        if os.path.exists(BEAR_IMAGE):
+            await message.reply_photo(
+                photo=FSInputFile(BEAR_IMAGE),
+                caption=caption,
+                parse_mode="HTML"
+            )
+        else:
+            await message.reply(caption, parse_mode="HTML")
 
 # ---------- Админ-панель ----------
 def admin_kb():
     kb = InlineKeyboardBuilder()
     kb.button(text="📤 Экспорт в CSV", callback_data="export_csv")
     kb.button(text="🔄 Обновить список", callback_data="refresh")
+    kb.button(text="✅ Выдать всем (ожидает)", callback_data="give_all")
     return kb.as_markup()
 
 def winners_text():
@@ -151,7 +163,7 @@ def winners_text():
     if not winners:
         return "Пока никто не выигрывал."
     lines = [f"<b>Всего победителей:</b> {len(winners)}\n"]
-    
+
     # Показываем последние 30
     for i, w in enumerate(winners[-30:], 1):
         mention = f"@{w['username']}" if w.get("username") else w.get("full_name", "—")
@@ -167,58 +179,58 @@ def winners_text():
 
 @dp.callback_query(F.data == "admin_panel")
 async def cb_admin_panel(call: types.CallbackQuery):
-    if call.from_user.id != ADMIN_ID:
+    if call.from_user.id not in ADMIN_IDS:
         await call.answer("У вас нет доступа.", show_alert=True)
         return
-    
-    # Добавляем кнопку "Выдать всем"
-    kb = InlineKeyboardBuilder()
-    kb.button(text="📤 Экспорт в CSV", callback_data="export_csv")
-    kb.button(text="🔄 Обновить список", callback_data="refresh")
-    kb.button(text="✅ Выдать всем (ожидает)", callback_data="give_all")
-    
-    await call.message.edit_text(winners_text(), parse_mode="HTML", reply_markup=kb.as_markup())
+
+    await call.message.edit_text(
+        winners_text(),
+        parse_mode="HTML",
+        reply_markup=admin_kb()
+    )
     await call.answer()
 
 @dp.callback_query(F.data == "refresh")
 async def cb_refresh(call: types.CallbackQuery):
-    if call.from_user.id != ADMIN_ID:
+    if call.from_user.id not in ADMIN_IDS:
+        await call.answer("У вас нет доступа.", show_alert=True)
         return
-    
-    kb = InlineKeyboardBuilder()
-    kb.button(text="📤 Экспорт в CSV", callback_data="export_csv")
-    kb.button(text="🔄 Обновить список", callback_data="refresh")
-    kb.button(text="✅ Выдать всем (ожидает)", callback_data="give_all")
-    
-    await call.message.edit_text(winners_text(), parse_mode="HTML", reply_markup=kb.as_markup())
+
+    await call.message.edit_text(
+        winners_text(),
+        parse_mode="HTML",
+        reply_markup=admin_kb()
+    )
     await call.answer("Обновлено")
 
 @dp.callback_query(F.data == "give_all")
 async def cb_give_all(call: types.CallbackQuery):
-    if call.from_user.id != ADMIN_ID:
+    if call.from_user.id not in ADMIN_IDS:
+        await call.answer("У вас нет доступа.", show_alert=True)
         return
-    
+
     winners = load_winners()
     count = 0
     for w in winners:
         if w.get("status") == "Ожидает выдачи":
             w["status"] = "Выдан вручную"
             count += 1
-            
+
     save_winners(winners)
     await call.answer(f"Отмечено как выданные: {count} чел.", show_alert=True)
-    
-    # Обновляем текст
-    kb = InlineKeyboardBuilder()
-    kb.button(text="📤 Экспорт в CSV", callback_data="export_csv")
-    kb.button(text="🔄 Обновить список", callback_data="refresh")
-    kb.button(text="✅ Выдать всем (ожидает)", callback_data="give_all")
-    await call.message.edit_text(winners_text(), parse_mode="HTML", reply_markup=kb.as_markup())
+
+    await call.message.edit_text(
+        winners_text(),
+        parse_mode="HTML",
+        reply_markup=admin_kb()
+    )
 
 @dp.callback_query(F.data == "export_csv")
 async def cb_export(call: types.CallbackQuery):
-    if call.from_user.id != ADMIN_ID:
+    if call.from_user.id not in ADMIN_IDS:
+        await call.answer("У вас нет доступа.", show_alert=True)
         return
+
     winners = load_winners()
     if not winners:
         await call.answer("Список пуст", show_alert=True)
