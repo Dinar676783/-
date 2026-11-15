@@ -108,12 +108,12 @@ async def handle_group_message(message: types.Message):
     count = get_count() + 1
     save_count(count)
 
-    # Цикл из 60 сообщений, выигрышная позиция 50–60
-    pos = ((count - 1) % 60) + 1
+    # Цикл из 1500 сообщений, выигрышная позиция 1300–1500
+    pos = ((count - 1) % 1500) + 1
 
     # Начинается новый цикл - генерируем позицию
     if pos == 1:
-        new_target = random.randint(50, 60)
+        new_target = random.randint(1300, 1500)
         save_target_pos(new_target)
 
     target_pos = get_target_pos()
