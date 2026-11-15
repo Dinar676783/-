@@ -208,7 +208,7 @@ async def cb_select_chat(call: types.CallbackQuery):
         f"✅ Выбран чат: <b>{chat_title}</b>\n\n"
         f"📝 Теперь напиши параметры в ответном сообщении:\n"
         f"<code>[минуты] [название приза]</code>\n\n"
-        f"Пример: <code>1 HappyBrownie-83197</code>",
+        f"Пример: <code>1 ссылка на нфт</code>",
         parse_mode="HTML"
     )
     await call.answer()
@@ -256,7 +256,6 @@ async def handle_nft_input(message: types.Message):
 
         start_text = (
             f"👋 <b>Ивент начался!</b>\n\n"
-            f"1 сообщение = 1 очко.\n"
             f"🎯 Цель: продержаться {minutes} мин без перебива.\n\n"
             f"🏅 <b>Приз:</b>\n"
             f"{prize}\n\n"
