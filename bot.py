@@ -24,7 +24,7 @@ BEAR_IMAGE = "bear.png"
 NFT_WINNERS_FILE = "nft_winners.json"
 NFT_BACKUP_FILE = "nft_winners_backup.json"
 NFT_IMAGE = "nft.png"
-CHATS_FILE = "known_chats.json" # Файл для хранения доступных чатов
+CHATS_FILE = "known_chats.json"
 
 # ---------- Админы ----------
 ADMIN_IDS = {6305430094, 6699838073}
@@ -55,7 +55,6 @@ def _save_json_list(path, data):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-# Запоминаем чаты, где сидит бот
 def remember_chat(chat_id, title):
     chats = _load_json_list([CHATS_FILE])
     for c in chats:
@@ -150,8 +149,27 @@ def nft_save_new_winner(user_id, username, full_name, chat_id, chat_title, prize
     nft_save_winners(winners)
 
 # ============================================================
-#                  ЗАПУСК ВЫБОРА ЧАТА
+#                   АДМИН-ПАНЕЛЬ (ЛИЧКА)
 # ============================================================
+
+@dp.message(Command("start"), F.chat.type == "private")
+async def cmd_start(message: types.Message):
+    if message.from_user.id in ADMIN_IDS:
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🚀 Запустить NFT", callback_data="start_launch_nft")],
+            [InlineKeyboardButton(text="🧸 Мишки (статистика)", callback_data="bear_panel")],
+            [InlineKeyboardButton(text="🎨 NFT (статистика)", callback_data="nft_admin_panel")],
+        ])
+        await message.answer(
+            "👋 Привет, Админ!\n\n"
+            "Нажми «🚀 Запустить NFT», чтобы выбрать чат и начать ивент.\n"
+            "Или посмотри статистику победителей.",
+            reply_markup=kb,
+            parse_mode="HTML"
+        )
+    else:
+        # Сообщение для обычных пользователей
+        await message.answer("👋 Привет! Я бот для розыгрышей. Добавь меня в свой чат, чтобы участвовать в ивентах!")
 
 @dp.message(Command("launch"), F.chat.type == "private")
 async def cmd_launch_nft(message: types.Message):
@@ -185,7 +203,6 @@ async def cb_select_chat(call: types.CallbackQuery):
         await call.answer("⚠️ В этом чате уже идёт розыгрыш!", show_alert=True)
         return
 
-    # Запоминаем, что ждем ввод
     waiting_for_nft_input[call.from_user.id] = {"chat_id": chat_id, "title": chat_title}
 
     await call.message.edit_text(
@@ -201,6 +218,7 @@ async def cb_select_chat(call: types.CallbackQuery):
 #                ВВОД ДАННЫХ ДЛЯ NFT (В ЛИЧКЕ)
 # ============================================================
 
+# Этот обработчик срабатывает только для админов, которые ждут ввода
 @dp.message(F.chat.type == "private", F.text)
 async def handle_nft_input(message: types.Message):
     user_id = message.from_user.id
@@ -212,7 +230,6 @@ async def handle_nft_input(message: types.Message):
         chat_id = data["chat_id"]
         chat_title = data["title"]
         
-        # Парсим: "1 HappyBrownie-83197"
         args = message.text.split(maxsplit=1)
         try:
             minutes = int(args[0])
@@ -228,7 +245,6 @@ async def handle_nft_input(message: types.Message):
             )
             return
 
-        # Запускаем ивент в выбранном чате
         active_giveaways[chat_id] = {
             "hold_time": minutes * 60,
             "prize": prize,
@@ -260,7 +276,6 @@ async def handle_nft_input(message: types.Message):
 
 @dp.message(F.chat.type.in_({"group", "supergroup"}))
 async def handle_group_message(message: types.Message):
-    # Запоминаем чат
     remember_chat(message.chat.id, message.chat.title)
 
     if message.text and message.text.startswith("/"):
@@ -270,7 +285,6 @@ async def handle_group_message(message: types.Message):
 
     chat_id = message.chat.id
 
-    # 1) ЛОГИКА NFT (ПЕРЕБИВАНИЕ)
     if chat_id in active_giveaways:
         giveaway = active_giveaways[chat_id]
         
@@ -299,7 +313,6 @@ async def handle_group_message(message: types.Message):
         giveaway["timer_task"] = task
         return
 
-    # 2) ОБЫЧНЫЙ СЧЁТЧИК МИШЕК
     count = get_count() + 1
     save_count(count)
 
@@ -383,26 +396,8 @@ async def nft_hold_timer(chat_id: int, hold_time: int):
         pass
 
 # ============================================================
-#                   АДМИН-ПАНЕЛЬ (ЛИЧКА)
+#                   КНОПКИ И СТАТИСТИКА
 # ============================================================
-
-@dp.message(Command("start"), F.chat.type == "private")
-async def cmd_start(message: types.Message):
-    if message.from_user.id in ADMIN_IDS:
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🚀 Запустить NFT", callback_data="start_launch_nft")],
-            [InlineKeyboardButton(text="🧸 Мишки (статистика)", callback_data="bear_panel")],
-            [InlineKeyboardButton(text="🎨 NFT (статистика)", callback_data="nft_admin_panel")],
-        ])
-        await message.answer(
-            "👋 Привет, Админ!\n\n"
-            "Нажми «🚀 Запустить NFT», чтобы выбрать чат и начать ивент.\n"
-            "Или посмотри статистику победителей.",
-            reply_markup=kb,
-            parse_mode="HTML"
-        )
-    else:
-        await message.answer("👋 Привет! Я бот для розыгрышей. Добавь меня в чат!")
 
 @dp.callback_query(F.data == "start_launch_nft")
 async def cb_start_launch_nft(call: types.CallbackQuery):
@@ -577,7 +572,6 @@ async def cb_back_to_menu(call: types.CallbackQuery):
 
 async def main():
     print("Бот запущен...")
-    # Эта строка убивает старые сессии и конфликты!
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
