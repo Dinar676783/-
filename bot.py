@@ -168,7 +168,6 @@ async def cmd_start(message: types.Message):
             parse_mode="HTML"
         )
     else:
-        # Сообщение для обычных пользователей
         await message.answer("👋 Привет! Я бот для розыгрышей. Добавь меня в свой чат, чтобы участвовать в ивентах!")
 
 @dp.message(Command("launch"), F.chat.type == "private")
@@ -218,7 +217,6 @@ async def cb_select_chat(call: types.CallbackQuery):
 #                ВВОД ДАННЫХ ДЛЯ NFT (В ЛИЧКЕ)
 # ============================================================
 
-# Этот обработчик срабатывает только для админов, которые ждут ввода
 @dp.message(F.chat.type == "private", F.text)
 async def handle_nft_input(message: types.Message):
     user_id = message.from_user.id
@@ -252,11 +250,13 @@ async def handle_nft_input(message: types.Message):
             "leader_id": None,
             "leader_name": "",
             "leader_username": "",
-            "timer_task": None
+            "timer_task": None,
+            "leader_message_id": None  # <-- ДОБАВЛЕНО: храним ID сообщения бота с текущим лидером
         }
 
         start_text = (
             f"👋 <b>Ивент начался!</b>\n\n"
+            f"1 сообщение = 1 очко.\n"
             f"🎯 Цель: продержаться {minutes} мин без перебива.\n\n"
             f"🏅 <b>Приз:</b>\n"
             f"{prize}\n\n"
@@ -298,15 +298,25 @@ async def handle_group_message(message: types.Message):
         if giveaway.get("timer_task"):
             giveaway["timer_task"].cancel()
 
+        # --- УДАЛЕНИЕ СТАРОГО СООБЩЕНИЯ ЛИДЕРА ---
+        if giveaway.get("leader_message_id"):
+            try:
+                await bot.delete_message(chat_id, giveaway["leader_message_id"])
+            except Exception:
+                pass # Если сообщение уже удалено или ему больше 48 часов - игнорируем
+        # -----------------------------------------
+
         mention = f"@{new_leader.username}" if new_leader.username else new_leader.full_name
         hold_min = giveaway["hold_time"] // 60
 
-        await message.reply(
+        # Отправляем новое сообщение и сохраняем его ID
+        msg = await message.reply(
             f"🔄 <b>Перебито!</b>\n\n"
             f"👑 Новый лидер: {mention}\n"
             f"⏳ До конца: {hold_min} мин",
             parse_mode="HTML"
         )
+        giveaway["leader_message_id"] = msg.message_id  # <-- СОХРАНЯЕМ ID НОВОГО СООБЩЕНИЯ
 
         task = asyncio.create_task(nft_hold_timer(chat_id, giveaway["hold_time"]))
         giveaway["timer_task"] = task
@@ -366,6 +376,14 @@ async def nft_hold_timer(chat_id: int, hold_time: int):
         winner_name = giveaway["leader_name"]
         prize = giveaway["prize"]
         chat_title = giveaway.get("chat_title", "")
+
+        # --- УДАЛЕНИЕ ПОСЛЕДНЕГО СООБЩЕНИЯ ЛИДЕРА ПЕРЕД ФИНАЛОМ ---
+        if giveaway.get("leader_message_id"):
+            try:
+                await bot.delete_message(chat_id, giveaway["leader_message_id"])
+            except Exception:
+                pass
+        # -----------------------------------------------------------
 
         active_giveaways.pop(chat_id, None)
 
