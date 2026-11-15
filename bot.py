@@ -257,7 +257,6 @@ async def handle_nft_input(message: types.Message):
 
         start_text = (
             f"👋 <b>Ивент начался!</b>\n\n"
-            f"1 сообщение = 1 очко.\n"
             f"🎯 Цель: продержаться {minutes} мин без перебива.\n\n"
             f"🏅 <b>Приз:</b>\n"
             f"{prize}\n\n"
