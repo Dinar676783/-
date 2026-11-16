@@ -380,7 +380,7 @@ async def handle_group_message(message: types.Message):
             await message.reply(caption, parse_mode="HTML")
 
 # ============================================================
-#                NFT: ТАЙМЕР УДЕРЖАНИЯ (ИСПРАВЛЕННЫЙ)
+#                NFT: ТАЙМЕР УДЕРЖАНИЯ
 # ============================================================
 
 async def nft_hold_timer(chat_id: int, hold_time: int):
@@ -393,8 +393,6 @@ async def nft_hold_timer(chat_id: int, hold_time: int):
         if not giveaway:
             return
 
-        # Проверяем, что таймер не был отменен (лидера не перебили)
-        # Если лидер все еще тот же (проверка через task)
         winner_id = giveaway["leader_id"]
         winner_username = giveaway["leader_username"]
         winner_name = giveaway["leader_name"]
@@ -435,8 +433,186 @@ async def nft_hold_timer(chat_id: int, hold_time: int):
             await bot.send_message(chat_id, text, parse_mode="HTML")
 
     except asyncio.CancelledError:
-        # Таймер был отменен (кто-то перебил лидера). Просто выходим.
         pass
+
+# ============================================================
+#                   КНОПКИ И СТАТИСТИКА
+# ============================================================
+
+@dp.callback_query(F.data == "start_launch_nft")
+async def cb_start_launch_nft(call: types.CallbackQuery):
+    if call.from_user.id not in ADMIN_IDS:
+        return
+
+    chats = _load_json_list([CHATS_FILE])
+    if not chats:
+        await call.message.edit_text("❌ Бот пока не знает ни одного чата.\nЗайди в нужный чат и напиши там любое сообщение, чтобы я его запомнил.")
+        return
+
+    kb = InlineKeyboardBuilder()
+    for c in chats:
+        kb.button(text=f"💬 {c['title']}", callback_data=f"select_chat_{c['chat_id']}")
+    kb.button(text="⬅️ Назад", callback_data="back_to_menu")
+    kb.adjust(1)
+
+    await call.message.edit_text("👇 Выбери чат, где будем разыгрывать NFT:", reply_markup=kb.as_markup())
+    await call.answer()
+
+def nft_admin_kb():
+    kb = InlineKeyboardBuilder()
+    kb.button(text="📤 Экспорт в CSV", callback_data="nft_export_csv")
+    kb.button(text="🔄 Обновить список", callback_data="nft_refresh")
+    kb.button(text="✅ Выдать всем", callback_data="nft_give_all")
+    kb.button(text="⬅️ Назад", callback_data="back_to_menu")
+    return kb.as_markup()
+
+def nft_winners_text():
+    winners = nft_load_winners()
+    if not winners:
+        return "Пока никто не выигрывал NFT."
+    lines = [f"<b>Всего победителей NFT:</b> {len(winners)}\n"]
+    for i, w in enumerate(winners[-30:], 1):
+        mention = f"@{w['username']}" if w.get("username") else w.get("full_name", "—")
+        status = w.get("status", "Ожидает выдачи")
+        status_emoji = "⏳" if status == "Ожидает выдачи" else "✅"
+        gift = w.get("gift", "NFT")
+        chat = w.get("chat_title", "—")
+        lines.append(f"{i}. {mention} — <b>{gift}</b> ({chat}) {status_emoji} {status}")
+    if len(winners) > 30:
+        lines.append(f"\n… и ещё {len(winners) - 30}. Полный список — в экспорте.")
+    return "\n".join(lines)
+
+@dp.callback_query(F.data == "nft_admin_panel")
+async def cb_nft_panel(call: types.CallbackQuery):
+    if call.from_user.id not in ADMIN_IDS:
+        return
+    await call.message.edit_text(nft_winners_text(), parse_mode="HTML", reply_markup=nft_admin_kb())
+    await call.answer()
+
+@dp.callback_query(F.data == "nft_refresh")
+async def cb_nft_refresh(call: types.CallbackQuery):
+    if call.from_user.id not in ADMIN_IDS:
+        return
+    await call.message.edit_text(nft_winners_text(), parse_mode="HTML", reply_markup=nft_admin_kb())
+    await call.answer("Обновлено")
+
+@dp.callback_query(F.data == "nft_give_all")
+async def cb_nft_give_all(call: types.CallbackQuery):
+    if call.from_user.id not in ADMIN_IDS:
+        return
+    winners = nft_load_winners()
+    count = 0
+    for w in winners:
+        if w.get("status") == "Ожидает выдачи":
+            w["status"] = "Выдан вручную"
+            count += 1
+    nft_save_winners(winners)
+    await call.answer(f"Отмечено как выданные: {count} чел.", show_alert=True)
+    await call.message.edit_text(nft_winners_text(), parse_mode="HTML", reply_markup=nft_admin_kb())
+
+@dp.callback_query(F.data == "nft_export_csv")
+async def cb_nft_export(call: types.CallbackQuery):
+    if call.from_user.id not in ADMIN_IDS:
+        return
+    winners = nft_load_winners()
+    if not winners:
+        await call.answer("Список пуст", show_alert=True)
+        return
+    csv_path = "nft_winners_export.csv"
+    with open(csv_path, "w", encoding="utf-8-sig") as f:
+        f.write("№;user_id;username;full_name;gift;chat_title;status;date\n")
+        for i, w in enumerate(winners, 1):
+            f.write(
+                f"{i};{w['user_id']};{w.get('username', '')};{w.get('full_name', '')};"
+                f"{w.get('gift', 'NFT')};{w.get('chat_title', '')};"
+                f"{w.get('status', 'Ожидает выдачи')};{w.get('date', '')}\n"
+            )
+    await call.message.answer_document(FSInputFile(csv_path), caption=f"📤 Экспорт NFT ({len(winners)} чел.)")
+    await call.answer("Готово")
+
+def bear_admin_kb():
+    kb = InlineKeyboardBuilder()
+    kb.button(text="📤 Экспорт в CSV", callback_data="bear_export_csv")
+    kb.button(text="🔄 Обновить список", callback_data="bear_refresh")
+    kb.button(text="✅ Выдать всем", callback_data="bear_give_all")
+    kb.button(text="⬅️ Назад", callback_data="back_to_menu")
+    return kb.as_markup()
+
+def bear_winners_text():
+    winners = load_winners()
+    if not winners:
+        return "Пока никто не выигрывал мишек."
+    lines = [f"<b>Всего победителей (мишки):</b> {len(winners)}\n"]
+    for i, w in enumerate(winners[-30:], 1):
+        mention = f"@{w['username']}" if w.get("username") else w.get("full_name", "—")
+        status = w.get("status", "Ожидает выдачи")
+        status_emoji = "⏳" if status == "Ожидает выдачи" else "✅"
+        lines.append(f"{i}. {mention} — сообщение #{w.get('message_number', '?')}, {status_emoji} {status}")
+    return "\n".join(lines)
+
+@dp.callback_query(F.data == "bear_panel")
+async def cb_bear_panel(call: types.CallbackQuery):
+    if call.from_user.id not in ADMIN_IDS:
+        return
+    await call.message.edit_text(bear_winners_text(), parse_mode="HTML", reply_markup=bear_admin_kb())
+    await call.answer()
+
+@dp.callback_query(F.data == "bear_refresh")
+async def cb_bear_refresh(call: types.CallbackQuery):
+    if call.from_user.id not in ADMIN_IDS:
+        return
+    await call.message.edit_text(bear_winners_text(), parse_mode="HTML", reply_markup=bear_admin_kb())
+    await call.answer("Обновлено")
+
+@dp.callback_query(F.data == "bear_give_all")
+async def cb_bear_give_all(call: types.CallbackQuery):
+    if call.from_user.id not in ADMIN_IDS:
+        return
+    winners = load_winners()
+    count = 0
+    for w in winners:
+        if w.get("status") == "Ожидает выдачи":
+            w["status"] = "Выдан вручную"
+            count += 1
+    save_winners(winners)
+    await call.answer(f"Отмечено как выданные: {count} чел.", show_alert=True)
+    await call.message.edit_text(bear_winners_text(), parse_mode="HTML", reply_markup=bear_admin_kb())
+
+@dp.callback_query(F.data == "bear_export_csv")
+async def cb_bear_export(call: types.CallbackQuery):
+    if call.from_user.id not in ADMIN_IDS:
+        return
+    winners = load_winners()
+    if not winners:
+        await call.answer("Список пуст", show_alert=True)
+        return
+    csv_path = "winners_export.csv"
+    with open(csv_path, "w", encoding="utf-8-sig") as f:
+        f.write("№;user_id;username;full_name;gift;message_number;status;date\n")
+        for i, w in enumerate(winners, 1):
+            f.write(f"{i};{w['user_id']};{w.get('username', '')};{w.get('full_name', '')};Мишка;{w.get('status')};{w.get('date')}\n")
+    await call.message.answer_document(FSInputFile(csv_path), caption="📤 Экспорт мишек")
+    await call.answer("Готово")
+
+@dp.callback_query(F.data == "back_to_menu")
+async def cb_back_to_menu(call: types.CallbackQuery):
+    if call.from_user.id not in ADMIN_IDS:
+        return
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🚀 Запустить NFT", callback_data="start_launch_nft")],
+        [InlineKeyboardButton(text="🧸 Мишки (статистика)", callback_data="bear_panel")],
+        [InlineKeyboardButton(text="🎨 NFT (статистика)", callback_data="nft_admin_panel")],
+    ])
+    await call.message.edit_text("Главное меню:", reply_markup=kb)
+    await call.answer()
+
+# ============================================================
+#                        ЗАПУСК
+# ============================================================
+
+async def main():
+    print("Бот запущен...")
+    await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
